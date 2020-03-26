@@ -6,7 +6,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstring>
-const size_t DEFAULT_CAPACITY_FOR_EACH_BLOCK = 300;
+#include <iostream>
+const size_t DEFAULT_CAPACITY_FOR_EACH_BLOCK = 40;
 namespace sjtu {
 int countOfSplit = 0;
 int countOfMerge = 0;
@@ -118,6 +119,7 @@ private:
         if (BlockToSplit->_sizeOfBlock < 2 * tmpSqrtN) { // no need to split
             return;
         } else {
+            int newSize = BlockToSplit->_sizeOfBlock >> 1;
             Block* newBlock = new Block;
             newBlock->nextBlock = BlockToSplit->nextBlock;
             newBlock->prevBlock = BlockToSplit;
@@ -125,7 +127,7 @@ private:
             BlockToSplit->nextBlock = newBlock;
             Node* tmp = BlockToSplit->headNode;
             bool flag = false; // pos in the former half or the latter
-            for (int i = 0; i < tmpSqrtN; i++) {
+            for (int i = 0; i < newSize; i++) {
                 tmp = tmp->nextNode;
                 if (pos.getDeque() != nullptr && pos.getNode() == tmp) {
                     flag = true;
@@ -138,20 +140,20 @@ private:
             tmp->nextNode = BlockToSplit->tailNode;
             BlockToSplit->tailNode->prevNode = tmp;
             // update size
-            newBlock->_sizeOfBlock = BlockToSplit->_sizeOfBlock - tmpSqrtN;
-            BlockToSplit->_sizeOfBlock = tmpSqrtN;
+            newBlock->_sizeOfBlock = BlockToSplit->_sizeOfBlock - newSize;
+            BlockToSplit->_sizeOfBlock = newSize;
             if (pos.getDeque() != nullptr && !flag) {
                 pos.getBlock() = newBlock;
             }
+            countOfSplit++;
         }
-        countOfSplit++;
     }
     // merge the block and the next one to a larger one
     // update pos
     void Merge(Block* Block1, Block* Block2, iterator& pos)
     {
         size_t tmpSqrtN = getSqrtN();
-        if (Block1->_sizeOfBlock + Block2->_sizeOfBlock > tmpSqrtN) {
+        if (Block1->_sizeOfBlock + Block2->_sizeOfBlock > 2 * tmpSqrtN) {
             return;
         } else {
             //block connect
@@ -173,8 +175,8 @@ private:
             if (pos.getDeque() != nullptr) {
                 pos.getBlock() = Block1;
             }
+            countOfMerge++;
         }
-        countOfMerge++;
     }
 
 public:
@@ -234,9 +236,7 @@ public:
                 return (*this) - (-n);
             } else {
                 iterator tmp(*this);
-                for (int i = 0; i < n; i++) {
-                    ++tmp;
-                }
+                tmp += n;
                 return tmp;
             }
         }
@@ -247,9 +247,7 @@ public:
                 return (*this) + (-n);
             } else {
                 iterator tmp(*this);
-                for (int i = 0; i < n; i++) {
-                    --tmp;
-                }
+                tmp -= n;
                 return tmp;
             }
         }
@@ -274,10 +272,34 @@ public:
             } else if (n == 0) {
                 return *this;
             } else {
-                for (size_t i = 0; i < n; i++) {
-                    ++(*this);
+                int count = n;
+                if (_node == _block->tailNode && _block == _deque->tailBlock->prevBlock) // end() + n
+                    throw invalid_iterator();
+                // in the same block
+                while (_node->nextNode != _block->tailNode) {
+                    _node = _node->nextNode;
+                    count--;
+                    if (count == 0)
+                        return (*this);
                 }
-                return (*this);
+                // not in the same block
+                while (_block->nextBlock != _deque->tailBlock) {
+                    _block = _block->nextBlock;
+                    if (_block->_sizeOfBlock >= count) { // found the block
+                        _node = _block->headNode;
+                        for (int i = 0; i < count; i++) {
+                            _node = _node->nextNode;
+                        }
+                        return (*this);
+                    } else {
+                        count -= _block->_sizeOfBlock;
+                    }
+                }
+                if (count == 1) {
+                    *this = _deque->end();
+                    return *this;
+                } else
+                    throw invalid_iterator();
             }
         }
         iterator& operator-=(const int& n)
@@ -289,10 +311,30 @@ public:
             } else if (n == 0) {
                 return *this;
             } else {
-                for (size_t i = 0; i < n; i++) {
-                    --(*this);
+                int count = n;
+                if (_block->prevBlock == _deque->headBlock && _node->prevNode == _block->headNode)
+                    throw invalid_iterator();
+                // in the same block
+                while (_node->prevNode != _block->headNode) {
+                    _node = _node->prevNode;
+                    count--;
+                    if (count == 0)
+                        return (*this);
                 }
-                return (*this);
+                // not in the same block
+                while (_block->prevBlock != _deque->headBlock) {
+                    _block = _block->prevBlock;
+                    if (_block->_sizeOfBlock >= count) {
+                        _node = _block->tailNode;
+                        for (int i = 0; i < count; i++) {
+                            _node = _node->prevNode;
+                        }
+                        return (*this);
+                    } else {
+                        count -= _block->_sizeOfBlock;
+                    }
+                }
+                throw invalid_iterator();
             }
         }
         /**
@@ -483,18 +525,14 @@ public:
         {
             //TODO
             const_iterator tmp(*this);
-            for (int i = 0; i < n; i++) {
-                ++tmp;
-            }
+            tmp += n;
             return tmp;
         }
         const_iterator operator-(const int& n) const
         {
             //TODO
             const_iterator tmp(*this);
-            for (int i = 0; i < n; i++) {
-                --tmp;
-            }
+            tmp -= n;
             return tmp;
         }
         // return th distance between two iterator,
@@ -513,19 +551,76 @@ public:
         }
         const_iterator& operator+=(const int& n)
         {
-            //TODO
-            for (size_t i = 0; i < n; i++) {
-                ++(*this);
+            if (n < 0) {
+                (*this) -= (-n);
+                return *this;
+            } else if (n == 0) {
+                return *this;
+            } else {
+                int count = n;
+                if (_node == _block->tailNode && _block == _deque->tailBlock->prevBlock) // end() + n
+                    throw invalid_iterator();
+                // in the same block
+                while (_node->nextNode != _block->tailNode) {
+                    _node = _node->nextNode;
+                    count--;
+                    if (count == 0)
+                        return (*this);
+                }
+                // not in the same block
+                while (_block->nextBlock != _deque->tailBlock) {
+                    _block = _block->nextBlock;
+                    if (_block->_sizeOfBlock >= count) { // found the block
+                        _node = _block->headNode;
+                        for (int i = 0; i < count; i++) {
+                            _node = _node->nextNode;
+                        }
+                        return (*this);
+                    } else {
+                        count -= _block->_sizeOfBlock;
+                    }
+                }
+                if (count == 1) {
+                    *this = _deque->cend();
+                    return *this;
+                } else
+                    throw invalid_iterator();
             }
-            return (*this);
         }
         const_iterator& operator-=(const int& n)
         {
             //TODO
-            for (size_t i = 0; i < n; i++) {
-                --(*this);
+            if (n < 0) {
+                (*this) += (-n);
+                return *this;
+            } else if (n == 0) {
+                return *this;
+            } else {
+                int count = n;
+                if (_block->prevBlock == _deque->headBlock && _node->prevNode == _block->headNode)
+                    throw invalid_iterator();
+                // in the same block
+                while (_node->prevNode != _block->headNode) {
+                    _node = _node->prevNode;
+                    count--;
+                    if (count == 0)
+                        return (*this);
+                }
+                // not in the same block
+                while (_block->prevBlock != _deque->headBlock) {
+                    _block = _block->prevBlock;
+                    if (_block->_sizeOfBlock >= count) {
+                        _node = _block->tailNode;
+                        for (int i = 0; i < count; i++) {
+                            _node = _node->prevNode;
+                        }
+                        return (*this);
+                    } else {
+                        count -= _block->_sizeOfBlock;
+                    }
+                }
+                throw invalid_iterator();
             }
-            return (*this);
         }
         /**
              * TODO iter++
@@ -992,6 +1087,7 @@ public:
         } else if (_size != 0) {
             if (tmpBlock->prevBlock != headBlock) {
                 iterator tmpIter = iterator();
+                Split(tmpBlock, tmpIter);
                 Merge(tmpBlock->prevBlock, tmpBlock, tmpIter);
             }
         }
@@ -1034,7 +1130,18 @@ public:
             if (tmpBlock->nextBlock != tailBlock) {
                 iterator tmpIter = iterator();
                 Merge(tmpBlock, tmpBlock->nextBlock, tmpIter);
+                Split(tmpBlock, tmpIter);
             }
+        }
+    }
+
+    void debugComplexity()
+    {
+        std::cout << ':' << _size << '\n';
+        Block* tmpBlock = headBlock->nextBlock;
+        while (tmpBlock != tailBlock) {
+            std::cout << tmpBlock->_sizeOfBlock << '\n';
+            tmpBlock = tmpBlock->nextBlock;
         }
     }
 };
